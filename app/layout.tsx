@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import SessionProvider from "../components/SessionProvider";
+import AuthButton from "../components/AuthButton";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,9 +27,28 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased bg-[#171a21] text-[#c7d5e0]`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col font-sans bg-[#171a21] text-[#c7d5e0] transition-colors duration-300">
+        <SessionProvider>
+          <header className="w-full px-8 py-6 border-b border-[#23262e] bg-[#23262e] sticky top-0 z-20 flex items-center justify-between">
+            <a
+              href="/"
+              className="text-2xl font-extrabold tracking-tight text-[#66c0f4] drop-shadow transition-all duration-150 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#66c0f4] hover:scale-105"
+              style={{ textDecoration: 'none' }}
+            >
+              Steam Backlog
+            </a>
+            <AuthButton />
+          </header>
+          <main className="flex-1 w-full max-w-screen-2xl mx-auto py-8 flex flex-col gap-8 px-2">
+            {children}
+          </main>
+          <footer className="w-full px-8 py-4 border-t border-[#23262e] text-sm text-[#8f98a0] text-center bg-[#23262e]">
+            Proyecto TFG &copy; {new Date().getFullYear()}
+          </footer>
+        </SessionProvider>
+      </body>
     </html>
   );
 }

@@ -1,0 +1,44 @@
+// Esquema Prisma para Steam Backlog
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  steamId   String   @unique
+  username  String?
+  backlog   Backlog[]
+}
+
+model Game {
+  id        Int      @id @default(autoincrement())
+  appid     Int      @unique
+  name      String
+  headerUrl String?
+  backlog   Backlog[]
+}
+
+model Backlog {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  game      Game     @relation(fields: [gameId], references: [id])
+  gameId    Int
+  status    BacklogStatus @default(EN_ROTACION)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, gameId])
+}
+
+enum BacklogStatus {
+  EN_ROTACION
+  COMPLETADO
+}
