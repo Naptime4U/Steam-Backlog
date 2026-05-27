@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(req: NextRequest) {
   const STEAM_OPENID_URL = 'https://steamcommunity.com/openid/login';
   const realm = process.env.NEXTAUTH_URL;
+  if (!realm) {
+    return NextResponse.json({ error: 'NEXTAUTH_URL is not configured' }, { status: 500 });
+  }
   const returnTo = `${realm}/api/auth/steam/callback`;
 
   const params = new URLSearchParams({

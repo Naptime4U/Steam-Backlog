@@ -34,3 +34,21 @@ export async function fetchGameDetails(appid: number): Promise<any | null> {
   }
 }
 
+export async function fetchLibraryWithDetails(limit = 10, steamId?: string): Promise<SteamGame[]> {
+  const resolvedSteamId = steamId || process.env.NEXT_PUBLIC_STEAM_USER_ID || '';
+  const games = await fetchLibrary(resolvedSteamId);
+  const slicedGames = games.slice(0, limit);
+
+  const detailedGames = await Promise.all(
+    slicedGames.map(async (game) => {
+      const details = await fetchGameDetails(game.appid);
+      return {
+        ...game,
+        header_image: details?.header_image || game.header_image,
+      };
+    })
+  );
+
+  return detailedGames;
+}
+

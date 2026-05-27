@@ -1,6 +1,5 @@
 import NextAuth from "next-auth";
 import type { NextAuthOptions } from "next-auth";
-import { sign } from "crypto";
 
 const STEAM_OPENID_URL = "https://steamcommunity.com/openid/login";
 const STEAM_REALM = process.env.NEXTAUTH_URL;
@@ -31,7 +30,7 @@ const SteamProvider = {
     bgDark: "#171a21",
   },
   options: {},
-  async profile(profile, tokens) {
+  async profile(profile: any, tokens: any) {
     // Extrae steamid del openid.claimed_id
     const claimedId = profile?.openid_claimed_id || tokens?.profile?.openid_claimed_id || "";
     const url = new URL(claimedId);
@@ -56,11 +55,13 @@ const SteamProvider = {
   },
 };
 
-export const authOptions: NextAuthOptions = {
-  providers: [SteamProvider],
+const authOptions: NextAuthOptions = {
+  providers: [SteamProvider as any],
   callbacks: {
-    async session({ session, token, user }) {
-      session.user.id = token.sub;
+    async session({ session, token }) {
+      if (session.user) {
+        (session.user as any).id = token.sub;
+      }
       return session;
     },
   },

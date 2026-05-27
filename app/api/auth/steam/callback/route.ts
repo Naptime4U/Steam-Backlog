@@ -37,6 +37,9 @@ export async function GET(req: NextRequest) {
   }
   // Extraer steamId
   const steamId = claimedId.split('/').pop();
+  if (!steamId) {
+    return NextResponse.redirect(new URL('/?error=steam-callback-missing-steamid', req.url));
+  }
   // Guardar steamId en cookie (o puedes crear JWT/session aquí)
   const cookiesStore = await cookies();
   cookiesStore.set('steamId', steamId, { path: '/', httpOnly: false });
