@@ -1,7 +1,79 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { fetchLibrary, fetchGameDetails, SteamGame } from '../lib/steam';
+import { fetchLibrary, SteamGame } from '../lib/steam';
 import { useSteamId } from '../lib/useSteamId';
+
+function getSteamHeaderUrl(appid: number): string {
+    return `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`;
+}
+
+function getIconFallback(game: SteamGame): string {
+    if (game.img_logo_url) {
+        return `https://media.steampowered.com/steamcommunity/public/images/apps/${game.appid}/${game.img_logo_url}.jpg`;
+    }
+    if (game.img_icon_url) {
+        return `https://media.steampowered.com/steamcommunity/public/images/apps/${game.appid}/${game.img_icon_url}.jpg`;
+    }
+    return '/steam.png';
+}
+
+// Cache de URLs reales obtenidas de appdetails, para no repetir la petición
+const appdetailsCache = new Map<number, string | null>();
+
+function GameImage({ game, className }: { game: SteamGame; className?: string }) {
+    const [src, setSrc] = useState(() => {
+        // Si ya tenemos la URL real en caché (de DB o de una petición anterior), la usamos
+        const cached = appdetailsCache.get(game.appid);
+        return cached || getSteamHeaderUrl(game.appid);
+    });
+    const [stage, setStage] = useState<'header' | 'fetching' | 'icon' | 'done'>('header');
+
+    const handleError = async () => {
+        if (stage === 'header') {
+            setStage('fetching');
+            // Usar caché solo si la URL cacheada es DISTINTA a la que acaba de fallar
+            // (evita bucle cuando DB guardó una URL mala como header.jpg que no existe)
+            const cached = appdetailsCache.get(game.appid);
+            if (cached && cached !== src) {
+                setSrc(cached);
+                setStage('icon');
+                return;
+            }
+            // Pedir la URL real a Steam Store (sobreescribe cualquier valor malo en caché)
+            try {
+                const res = await fetch(`/api/steam/appdetails?appid=${game.appid}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const realUrl: string | null = data?.headers?.[game.appid] || null;
+                    appdetailsCache.set(game.appid, realUrl);
+                    if (realUrl && realUrl !== src) {
+                        setSrc(realUrl);
+                        setStage('icon');
+                        return;
+                    }
+                }
+            } catch { /* silencio */ }
+            // appdetails no tiene imagen → icono
+            setSrc(getIconFallback(game));
+            setStage('done');
+        } else if (stage === 'icon') {
+            setSrc(getIconFallback(game));
+            setStage('done');
+        } else {
+            setSrc('/steam.png');
+            setStage('done');
+        }
+    };
+
+    return (
+        <img
+            src={src}
+            alt={game.name}
+            className={className}
+            onError={stage === 'done' ? undefined : handleError}
+        />
+    );
+}
 
 function getColumnNameById(id: string): string {
     if (id === 'backlog') return 'Backlog';
@@ -11,10 +83,7 @@ function getColumnNameById(id: string): string {
 
 export default function ManualDragDropBacklog() {
     const steamId = useSteamId();
-    // Estado para juegos de Steam (sin imágenes al principio)
     const [libraryGames, setLibraryGames] = useState<SteamGame[]>([]);
-    // Estado para imágenes cargadas
-    const [gameImages, setGameImages] = useState<Record<number, string>>({});
     // Ref para la lista de biblioteca
     const libraryListRef = useRef<HTMLDivElement | null>(null);
     // Estado para columnas (backlog y completados, usando appid)
@@ -40,6 +109,15 @@ export default function ManualDragDropBacklog() {
                 fetchLibrary(steamId),
                 fetch('/api/backlog/get').then(r => r.ok ? r.json() : { backlog: [], completed: [] })
             ]);
+            // Pre-cargar headers de la DB en la caché para evitar peticiones innecesarias
+            if (backlogRes.headers && typeof backlogRes.headers === 'object') {
+                for (const [key, value] of Object.entries(backlogRes.headers)) {
+                    const appid = Number(key);
+                    if (appid > 0 && typeof value === 'string' && value.length > 0) {
+                        appdetailsCache.set(appid, value as string);
+                    }
+                }
+            }
             setLibraryGames(games);
             setColumns({
                 backlog: backlogRes.backlog || [],
@@ -49,62 +127,6 @@ export default function ManualDragDropBacklog() {
         }
         loadData();
     }, [steamId]);
-
-    // Lazy load de imágenes mejorado: también carga headers de juegos en backlog y completados
-    useEffect(() => {
-        let interval: NodeJS.Timeout | null = null;
-        let cancelled = false;
-        async function loadImages() {
-            // 1. Cargar headers de juegos en backlog y completados aunque no estén en la biblioteca visible
-            const allNeededAppids = Array.from(new Set([
-                ...columns.backlog,
-                ...columns.completed
-            ]));
-            const missingBacklogHeaders = allNeededAppids.filter(appid => !gameImages[appid]);
-            if (missingBacklogHeaders.length > 0) {
-                await Promise.all(missingBacklogHeaders.map(async (appid) => {
-                    const details = await fetchGameDetails(appid);
-                    if (details && details.header_image && !cancelled) {
-                        setGameImages(prev => ({ ...prev, [appid]: details.header_image }));
-                    }
-                }));
-            }
-            // 2. Lazy load para la biblioteca visible
-            if (libraryListRef.current) {
-                const cards = Array.from(libraryListRef.current.querySelectorAll('[data-appid]'));
-                const toLoad: number[] = [];
-                cards.forEach((el) => {
-                    const rect = el.getBoundingClientRect();
-                    if (rect.bottom > 0 && rect.top < window.innerHeight) {
-                        const appid = Number(el.getAttribute('data-appid'));
-                        if (appid && !gameImages[appid]) {
-                            toLoad.push(appid);
-                        }
-                    }
-                });
-                if (toLoad.length > 0) {
-                    await Promise.all(toLoad.map(async (appid) => {
-                        const details = await fetchGameDetails(appid);
-                        if (details && details.header_image && !cancelled) {
-                            setGameImages(prev => ({ ...prev, [appid]: details.header_image }));
-                        }
-                    }));
-                }
-            }
-        }
-        loadImages();
-        interval = setInterval(() => {
-            loadImages();
-        }, 800);
-        window.addEventListener('scroll', loadImages);
-        window.addEventListener('resize', loadImages);
-        return () => {
-            cancelled = true;
-            if (interval) clearInterval(interval);
-            window.removeEventListener('scroll', loadImages);
-            window.removeEventListener('resize', loadImages);
-        };
-    }, [libraryGames, columns, gameImages]);
 
     // Disable text selection durante drag
     React.useEffect(() => {
@@ -270,7 +292,11 @@ export default function ManualDragDropBacklog() {
                                         userSteamId: steamId,
                                         backlog: columns.backlog,
                                         completed: columns.completed,
-                                        games: libraryGames,
+                                        games: libraryGames.map((game) => ({
+                                            ...game,
+                                            // Usar la URL real resuelta si está en caché, si no el header.jpg estándar
+                                            header_image: appdetailsCache.get(game.appid) || getSteamHeaderUrl(game.appid),
+                                        })),
                                     })
                                 });
                                 if (res.ok) {
@@ -307,7 +333,6 @@ export default function ManualDragDropBacklog() {
                     <div className="flex flex-col gap-3">
                         {libraryGames.map((game) => {
                             const isDisabled = gamesInOtherColumns.has(game.appid);
-                            const headerImage = gameImages[game.appid];
                             return (
                                 <div
                                     key={game.appid}
@@ -318,11 +343,9 @@ export default function ManualDragDropBacklog() {
                                     onTouchStart={isDisabled || !editMode ? undefined : () => handleDragStart(game.appid, 'library')}
                                     aria-disabled={isDisabled || !editMode}
                                 >
-                                    {headerImage && (
-                                        <div className="flex items-center justify-center bg-[#23262e] border border-[#66c0f4] rounded w-32 h-14 overflow-hidden mr-2 shadow min-w-[128px] max-w-[128px] min-h-[56px] max-h-[56px]">
-                                            <img src={headerImage} alt={game.name} className="w-full h-full object-cover" />
-                                        </div>
-                                    )}
+                                    <div className="flex items-center justify-center bg-[#23262e] border border-[#66c0f4] rounded w-32 h-14 overflow-hidden mr-2 shadow min-w-[128px] max-w-[128px] min-h-[56px] max-h-[56px]">
+                                        <GameImage game={game} className="w-full h-full object-cover" />
+                                    </div>
                                     <span className="font-semibold text-base text-[#c7d5e0] break-words whitespace-normal leading-snug max-w-[220px] line-clamp-2">
                                         {game.name}
                                     </span>
@@ -344,7 +367,6 @@ export default function ManualDragDropBacklog() {
                             {columns[col].map((appid) => {
                                 const game = libraryGames.find((g) => g.appid === appid);
                                 if (!game) return null;
-                                const headerImage = gameImages[appid];
                                 return (
                                     <div
                                         key={appid}
@@ -354,11 +376,9 @@ export default function ManualDragDropBacklog() {
                                         onTouchStart={editMode ? () => handleDragStart(appid, col) : undefined}
                                         aria-disabled={!editMode}
                                     >
-                                        {headerImage && (
-                                            <div className="flex items-center justify-center bg-[#23262e] border border-[#66c0f4] rounded w-32 h-14 overflow-hidden mr-2 shadow min-w-[128px] max-w-[128px] min-h-[56px] max-h-[56px]">
-                                                <img src={headerImage} alt={game.name} className="w-full h-full object-cover" />
-                                            </div>
-                                        )}
+                                        <div className="flex items-center justify-center bg-[#23262e] border border-[#66c0f4] rounded w-32 h-14 overflow-hidden mr-2 shadow min-w-[128px] max-w-[128px] min-h-[56px] max-h-[56px]">
+                                            <GameImage game={game} className="w-full h-full object-cover" />
+                                        </div>
                                         <span className="font-semibold text-base text-[#c7d5e0] break-words whitespace-normal leading-snug max-w-[220px] line-clamp-2">
                                             {game.name}
                                         </span>
@@ -373,7 +393,6 @@ export default function ManualDragDropBacklog() {
                 {dragged && draggedPos && (() => {
                     const game = libraryGames.find((g) => g.appid === dragged.appid);
                     if (!game) return null;
-                    const headerImage = gameImages[dragged.appid];
                     return (
                         <div
                             ref={dragItemRef}
@@ -384,11 +403,9 @@ export default function ManualDragDropBacklog() {
                                 minHeight: 56
                             }}
                         >
-                            {headerImage && (
-                                <div className="flex items-center justify-center bg-[#23262e] border border-[#66c0f4] rounded w-32 h-14 overflow-hidden mr-2 shadow min-w-[128px] max-w-[128px] min-h-[56px] max-h-[56px]">
-                                    <img src={headerImage} alt={game.name} className="w-full h-full object-cover" />
-                                </div>
-                            )}
+                            <div className="flex items-center justify-center bg-[#23262e] border border-[#66c0f4] rounded w-32 h-14 overflow-hidden mr-2 shadow min-w-[128px] max-w-[128px] min-h-[56px] max-h-[56px]">
+                                <GameImage game={game} className="w-full h-full object-cover" />
+                            </div>
                             <span className="font-semibold text-base text-[#c7d5e0] break-words whitespace-normal leading-snug max-w-[220px] line-clamp-2">
                                 {game.name}
                             </span>
