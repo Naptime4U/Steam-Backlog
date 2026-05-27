@@ -27,20 +27,19 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const query = url.searchParams;
   const claimedId = query.get('openid.claimed_id');
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
   if (!claimedId) {
-    return NextResponse.redirect(`${baseUrl}/?error=steam-callback-missing-claimedid`);
+    return NextResponse.redirect(new URL('/?error=steam-callback-missing-claimedid', req.url));
   }
   // Validar respuesta OpenID
   const valid = await validateOpenID(query);
   if (!valid) {
-    return NextResponse.redirect(`${baseUrl}/?error=steam-callback-invalid`);
+    return NextResponse.redirect(new URL('/?error=steam-callback-invalid', req.url));
   }
   // Extraer steamId
   const steamId = claimedId.split('/').pop();
   // Guardar steamId en cookie (o puedes crear JWT/session aquí)
-  const cookieStore = await cookies();
-  cookieStore.set('steamId', steamId, { path: '/', httpOnly: false });
-  // Redirigir a la app
-  return NextResponse.redirect(baseUrl + '/');
+  const cookiesStore = await cookies();
+  cookiesStore.set('steamId', steamId, { path: '/', httpOnly: false });
+  // Redirigir a la app (URL absoluta)
+  return NextResponse.redirect(new URL('/', req.url));
 }

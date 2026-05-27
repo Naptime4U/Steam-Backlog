@@ -4,7 +4,7 @@ import { prisma } from '../../../../lib/prisma';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { userId, backlog, completed, games } = body;
+    const { userSteamId, backlog, completed, games } = body;
 
     // Asegura que todos los juegos existen en la tabla Game y obtiene sus IDs
     let appidToId: Record<number, number> = {};
@@ -24,12 +24,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Asegura que el usuario existe en la tabla User
+    await prisma.user.upsert({
+      where: { steamId: userSteamId },
+      update: {},
+      create: { steamId: userSteamId },
+    });
+
     // Borra el backlog anterior del usuario
-    await prisma.backlog.deleteMany({ where: { userId } });
+    await prisma.backlog.deleteMany({ where: { userSteamId } });
     // Inserta el nuevo backlog usando los IDs reales
     const backlogData = [
-      ...backlog.map((appid: number) => ({ userId, gameId: appidToId[appid], status: 'EN_ROTACION' })),
-      ...completed.map((appid: number) => ({ userId, gameId: appidToId[appid], status: 'COMPLETADO' })),
+      ...backlog.map((appid: number) => ({ userSteamId, gameId: appidToId[appid], status: 'EN_ROTACION' })),
+      ...completed.map((appid: number) => ({ userSteamId, gameId: appidToId[appid], status: 'COMPLETADO' })),
     ];
     await prisma.backlog.createMany({ data: backlogData });
     return NextResponse.json({ ok: true });

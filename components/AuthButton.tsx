@@ -1,39 +1,132 @@
 "use client";
-import { useSteamId } from "../lib/useSteamId";
-import { useSteamProfile } from "../lib/useSteamProfile";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 
-export default function AuthButton() {
-  const steamId = useSteamId();
-  const profile = useSteamProfile(steamId);
+interface SteamProfile {
+  personaname: string;
+  avatarfull: string;
+}
 
-  if (!steamId) {
+export default function AuthButton({ large = false }: { large?: boolean }) {
+  const [steamId, setSteamId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<SteamProfile | null>(null);
+  const [hovering, setHovering] = useState(false);
+
+  const pad = large ? '20px 36px' : '0 14px';
+  const h = large ? 'auto' : 38;
+  const fs = large ? 18 : 14;
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const value = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('steamId='))
+        ?.split('=')[1] || null;
+      setSteamId(value);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!steamId) return;
+    fetch(`/api/steam/profile?steamId=${steamId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.personaname) setProfile(data); });
+  }, [steamId]);
+
+  if (steamId) {
     return (
       <button
-        className="flex items-center gap-3 px-5 py-2 rounded-lg bg-[#171a21] border border-[#66c0f4] text-[#c7d5e0] font-semibold shadow hover:bg-[#23262e] hover:border-[#417a9b] transition-colors focus:outline-none focus:ring-2 focus:ring-[#66c0f4]"
-        style={{ boxShadow: '0 2px 8px 0 #0006' }}
-        onClick={() => window.location.href = "/api/auth/steam"}
+        onClick={() => { window.location.href = "/api/auth/logout"; }}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        style={{
+          position: 'relative',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flex: large ? 1 : undefined,
+          minWidth: large ? 0 : 160,
+          height: large ? 'auto' : 38,
+          borderRadius: 4,
+          border: hovering ? '1px solid #c0392b' : '1px solid #3d5467',
+          background: hovering ? '#c0392b' : '#1b2838',
+          cursor: 'pointer',
+          padding: large ? '20px 36px' : '0 14px',
+          transition: 'background 0.25s ease, border-color 0.25s ease',
+          fontFamily: 'Arial, sans-serif',
+          fontSize: fs,
+          boxShadow: large ? '0 2px 8px rgba(0,0,0,0.4)' : 'none',
+        }}
       >
-        <img src="/steam.png" alt="Steam" className="w-6 h-6" />
-        Iniciar sesión con Steam
+        {/* Normal state: avatar + name */}
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            position: 'absolute',
+            opacity: hovering ? 0 : 1,
+            transform: hovering ? 'translateY(-6px)' : 'translateY(0)',
+            transition: 'opacity 0.2s ease, transform 0.2s ease',
+            color: '#c7d5e0',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {profile?.avatarfull ? (
+            <Image
+              src={profile.avatarfull}
+              alt="avatar"
+              width={26}
+              height={26}
+              style={{ borderRadius: '50%', border: '1px solid #3d5467', flexShrink: 0 }}
+              unoptimized
+            />
+          ) : (
+            <Image src="/steam.png" alt="Steam" width={22} height={22} unoptimized style={{ flexShrink: 0 }} />
+          )}
+          <span style={{ fontWeight: large ? 700 : 500 }}>{profile?.personaname ?? steamId}</span>
+        </span>
+        {/* Hover state: cerrar sesión */}
+        <span
+          style={{
+            position: 'absolute',
+            opacity: hovering ? 1 : 0,
+            transform: hovering ? 'translateY(0)' : 'translateY(6px)',
+            transition: 'opacity 0.2s ease, transform 0.2s ease',
+            color: '#ffffff',
+            fontWeight: 700,
+            letterSpacing: '0.3px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Cerrar sesión
+        </span>
       </button>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-[#23262e] border border-[#66c0f4] text-[#c7d5e0] font-semibold shadow" style={{ boxShadow: '0 2px 8px 0 #0006' }}>
-      {profile?.avatar && (
-        <img src={profile.avatar} alt="avatar" className="w-8 h-8 rounded-full border border-[#66c0f4]" />
-      )}
-      <span>{profile?.name || steamId}</span>
-      <button
-        className="ml-2 px-3 py-1 rounded bg-[#66c0f4] text-[#171a21] font-bold hover:bg-[#417a9b] transition-colors focus:outline-none focus:ring-2 focus:ring-[#66c0f4]"
-        onClick={() => {
-          document.cookie = 'steamId=; Max-Age=0; path=/;';
-          window.location.reload();
-        }}
-      >
-        Cerrar sesión
-      </button>
-    </div>
+    <button
+      onClick={() => { window.location.href = "/api/auth/steam"; }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        background: 'linear-gradient(to bottom, #2a6496 0%, #1a4a72 100%)',
+        border: '1px solid #1a4a72',
+        borderRadius: 4,
+        padding: large ? '20px 36px' : '8px 16px',
+        cursor: 'pointer',
+        color: '#c7d5e0',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: fs,
+        fontWeight: 600,
+        letterSpacing: '0.3px',
+        boxShadow: large ? '0 2px 8px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.6)',
+      }}
+    >
+      <Image src="/steam.png" alt="Steam" width={22} height={22} unoptimized />
+      <span>Iniciar sesión con Steam</span>
+    </button>
   );
 }

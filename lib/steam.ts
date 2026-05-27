@@ -9,11 +9,13 @@ export interface SteamGame {
 }
 
 export async function fetchLibrary(steamId: string): Promise<SteamGame[]> {
+  if (!steamId) return [];
   try {
-    const url = `https://corsproxy.io/?https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${STEAM_API_KEY}&steamid=${steamId}&include_appinfo=true`;
+    const url = `https://corsproxy.io/?https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${STEAM_API_KEY}&steamid=${steamId}&include_appinfo=true&include_played_free_games=1`;
     const response = await fetch(url);
+    if (!response.ok) return [];
     const data = await response.json();
-    return data.response.games || [];
+    return data?.response?.games || [];
   } catch (error) {
     console.error('Error fetching library:', error);
     return [];
@@ -32,16 +34,3 @@ export async function fetchGameDetails(appid: number): Promise<any | null> {
   }
 }
 
-export async function fetchLibraryWithDetails(steamId: string, limit = 10): Promise<SteamGame[]> {
-  const games = await fetchLibrary(steamId);
-  const detailedGames = await Promise.all(
-    games.slice(0, limit).map(async (game: any) => {
-      const details = await fetchGameDetails(game.appid);
-      return {
-        ...game,
-        ...(details ? { header_image: details.header_image, details } : {}),
-      };
-    })
-  );
-  return detailedGames.filter(Boolean);
-}

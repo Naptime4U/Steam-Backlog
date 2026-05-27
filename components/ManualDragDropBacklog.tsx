@@ -1,17 +1,14 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { fetchLibrary, fetchGameDetails, SteamGame } from '../lib/steam';
-
 import { useSteamId } from '../lib/useSteamId';
 
-
-
-function getColumnNameById(id: string) {
-    if (id === 'library') return 'Biblioteca';
-    if (id === 'backlog') return 'Backlog/En rotación';
+function getColumnNameById(id: string): string {
+    if (id === 'backlog') return 'Backlog';
     if (id === 'completed') return 'Completados';
     return '';
 }
+
 export default function ManualDragDropBacklog() {
     const steamId = useSteamId();
     // Estado para juegos de Steam (sin imágenes al principio)
@@ -32,6 +29,8 @@ export default function ManualDragDropBacklog() {
     const [dragged, setDragged] = useState<{ appid: number; from: keyof typeof columns | 'library' } | null>(null);
     const [draggedPos, setDraggedPos] = useState<{ x: number; y: number } | null>(null);
     const dragItemRef = useRef<HTMLDivElement | null>(null);
+    const scrollSpeedRef = useRef(0);
+    const scrollFrameRef = useRef<number | null>(null);
 
     // Cargar toda la biblioteca de Steam y el backlog guardado al montar
     useEffect(() => {
@@ -118,28 +117,54 @@ export default function ManualDragDropBacklog() {
         }
     }, [dragged]);
 
-    // Mouse/touch move handler
+    // Mouse/touch move handler + auto-scroll near viewport edges
     React.useEffect(() => {
+        const EDGE = 80; // px from top/bottom edge that triggers scroll
+        const MAX_SPEED = 12; // max px per frame
+
         function onMove(e: MouseEvent | TouchEvent) {
-            let x = 0, y = 0;
             if ('touches' in e) {
-                x = e.touches[0].clientX;
-                y = e.touches[0].clientY;
+                e.preventDefault(); // prevent page scroll during drag
+                const x = e.touches[0].clientX;
+                const y = e.touches[0].clientY;
+                setDraggedPos({ x, y });
+                // Set scroll speed based on proximity to viewport edge
+                const vh = window.innerHeight;
+                if (y < EDGE) {
+                    scrollSpeedRef.current = -MAX_SPEED * (1 - y / EDGE);
+                } else if (y > vh - EDGE) {
+                    scrollSpeedRef.current = MAX_SPEED * (1 - (vh - y) / EDGE);
+                } else {
+                    scrollSpeedRef.current = 0;
+                }
             } else {
-                x = e.clientX;
-                y = e.clientY;
+                setDraggedPos({ x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY });
             }
-            setDraggedPos({ x, y });
         }
+
+        function scrollLoop() {
+            if (scrollSpeedRef.current !== 0) {
+                window.scrollBy(0, scrollSpeedRef.current);
+            }
+            scrollFrameRef.current = requestAnimationFrame(scrollLoop);
+        }
+
         if (dragged) {
             window.addEventListener('mousemove', onMove);
-            window.addEventListener('touchmove', onMove);
+            window.addEventListener('touchmove', onMove, { passive: false });
+            scrollFrameRef.current = requestAnimationFrame(scrollLoop);
         } else {
             setDraggedPos(null);
+            scrollSpeedRef.current = 0;
         }
         return () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('touchmove', onMove);
+            if (scrollFrameRef.current !== null) {
+                cancelAnimationFrame(scrollFrameRef.current);
+                scrollFrameRef.current = null;
+            }
+            scrollSpeedRef.current = 0;
         };
     }, [dragged]);
 
@@ -236,14 +261,13 @@ export default function ManualDragDropBacklog() {
                         onClick={async () => {
                             setSaving(true);
                             setSaveSuccess(null);
-                            // TODO: Reemplazar por el userId real si hay auth
-                            const userId = 1;
+                            if (!steamId) return;
                             try {
                                 const res = await fetch('/api/backlog/save', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({
-                                        userId,
+                                        userSteamId: steamId,
                                         backlog: columns.backlog,
                                         completed: columns.completed,
                                         games: libraryGames,
@@ -271,18 +295,17 @@ export default function ManualDragDropBacklog() {
                     <span className="ml-4 text-red-400 font-semibold">Error al guardar</span>
                 )}
             </div>
-            <div className="flex gap-8 w-full min-h-[500px] justify-between">
+            <div className="flex flex-col lg:flex-row gap-6 w-full min-h-[500px]">
                 {/* Biblioteca */}
                 <section
                     key="library"
                     data-column="library"
                     ref={libraryListRef}
-                    className="flex-1 min-w-[340px] max-w-xl bg-[#1b2838] rounded-xl border border-[#23262e] shadow p-6 flex flex-col gap-2 ml-0"
-                    style={{ marginLeft: 0 }}
+                    className="w-full lg:flex-1 lg:min-w-[300px] lg:max-w-xl bg-[#1b2838] rounded-xl border border-[#23262e] shadow p-4 sm:p-6 flex flex-col gap-2"
                 >
                     <h2 className="text-lg font-extrabold mb-2 text-[#66c0f4] drop-shadow">Biblioteca</h2>
                     <div className="flex flex-col gap-3">
-                        {libraryGames.map((game, idx) => {
+                        {libraryGames.map((game) => {
                             const isDisabled = gamesInOtherColumns.has(game.appid);
                             const headerImage = gameImages[game.appid];
                             return (
@@ -290,7 +313,7 @@ export default function ManualDragDropBacklog() {
                                     key={game.appid}
                                     data-appid={game.appid}
                                     className={`flex items-center gap-4 rounded-lg border border-[#23262e] bg-[#101822] px-4 py-3 shadow-sm transition-all select-none ${isDisabled ? 'opacity-50 pointer-events-none' : editMode ? 'cursor-grab hover:shadow-lg hover:border-[#66c0f4]' : 'cursor-not-allowed'}`}
-                                    style={{ opacity: isDisabled ? 0.5 : (dragged && dragged.appid === game.appid && dragged.from === 'library' ? 0.5 : 1), minHeight: 80 }}
+                                    style={{ opacity: isDisabled ? 0.5 : (dragged && dragged.appid === game.appid && dragged.from === 'library' ? 0.5 : 1), minHeight: 80, touchAction: (editMode && !isDisabled) ? 'none' : 'auto' }}
                                     onMouseDown={isDisabled || !editMode ? undefined : () => handleDragStart(game.appid, 'library')}
                                     onTouchStart={isDisabled || !editMode ? undefined : () => handleDragStart(game.appid, 'library')}
                                     aria-disabled={isDisabled || !editMode}
@@ -314,7 +337,7 @@ export default function ManualDragDropBacklog() {
                     <section
                         key={col}
                         data-column={col}
-                        className="flex-1 min-w-[340px] max-w-xl bg-[#1b2838] rounded-xl border border-[#23262e] shadow p-6 flex flex-col gap-2"
+                        className="w-full lg:flex-1 lg:min-w-[300px] lg:max-w-xl bg-[#1b2838] rounded-xl border border-[#23262e] shadow p-4 sm:p-6 flex flex-col gap-2"
                     >
                         <h2 className="text-lg font-extrabold mb-2 text-[#66c0f4] drop-shadow">{getColumnNameById(col)}</h2>
                         <div className="flex flex-col gap-3">
@@ -326,7 +349,7 @@ export default function ManualDragDropBacklog() {
                                     <div
                                         key={appid}
                                         className={`flex items-center gap-4 rounded-lg border border-[#23262e] bg-[#101822] px-4 py-3 shadow-sm transition-all select-none ${editMode ? 'cursor-grab hover:shadow-lg hover:border-[#66c0f4]' : 'cursor-not-allowed'}`}
-                                        style={{ opacity: dragged && dragged.appid === appid && dragged.from === col ? 0.5 : 1, minHeight: 80 }}
+                                        style={{ opacity: dragged && dragged.appid === appid && dragged.from === col ? 0.5 : 1, minHeight: 80, touchAction: editMode ? 'none' : 'auto' }}
                                         onMouseDown={editMode ? () => handleDragStart(appid, col) : undefined}
                                         onTouchStart={editMode ? () => handleDragStart(appid, col) : undefined}
                                         aria-disabled={!editMode}

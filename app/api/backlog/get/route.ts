@@ -1,13 +1,19 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
+import { cookies } from 'next/headers';
 
 export async function GET(req: NextRequest) {
   try {
-    // TODO: Reemplazar por el userId real si hay auth
-    const userId = 1;
+    // Obtener steamId de la cookie
+    const cookiesStore = await cookies();
+    const steamId = cookiesStore.get('steamId')?.value;
+    if (!steamId) {
+      return NextResponse.json({ ok: false, error: 'No steamId in cookie' }, { status: 401 });
+    }
     // Obtiene el backlog y completados del usuario
     const backlog = await prisma.backlog.findMany({
-      where: { userId },
+      where: { userSteamId: steamId },
       include: { game: true },
     });
     return NextResponse.json({

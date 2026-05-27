@@ -13,7 +13,7 @@ model User {
   id        Int      @id @default(autoincrement())
   steamId   String   @unique
   username  String?
-  backlog   Backlog[]
+  backlog   Backlog[] @relation("UserBacklog")
 }
 
 model Game {
@@ -26,8 +26,8 @@ model Game {
 
 model Backlog {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    Int
+  user      User     @relation("UserBacklog", fields: [userSteamId], references: [steamId])
+  userSteamId String
   game      Game     @relation(fields: [gameId], references: [id])
   gameId    Int
   status    BacklogStatus @default(EN_ROTACION)
@@ -35,7 +35,7 @@ model Backlog {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, gameId])
+  @@unique([userSteamId, gameId])
 }
 
 enum BacklogStatus {
